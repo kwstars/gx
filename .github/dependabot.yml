@@ -1,0 +1,42 @@
+# To get started with Dependabot version updates, you'll need to specify which
+# package ecosystems to update and where the package manifests are located.
+# Please see the documentation for all configuration options:
+# https://docs.github.com/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
+
+version: 2
+
+updates:
+  # Go modules (backend)
+  - package-ecosystem: "gomod"
+    directory: "/"
+    schedule:
+      interval: "daily"
+    open-pull-requests-limit: 10
+    assignees:
+      - "backend-team"
+    labels:
+      - "go"
+      - "dependencies"
+    groups:
+      go-prod:
+        dependency-type: "production"
+        update-types: ["patch", "minor"]
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+
+  # GitHub Actions (shared)
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    assignees:
+      - "devops-team"
+    labels:
+      - "ci"
+      - "github-actions"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
