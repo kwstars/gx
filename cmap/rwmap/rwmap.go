@@ -7,9 +7,11 @@ import (
 )
 
 // rwMap implements cmap.Map using sync.RWMutex + built-in map.
+// All methods assume m != nil. Calling methods on nil *rwMap will panic,
+// consistent with Go standard library conventions (e.g., sync.Map).
 type rwMap[K comparable, V any] struct {
 	mu    sync.RWMutex
-	store map[K]V
+	store map[K]V // Guaranteed non-nil by newMap()
 }
 
 // Ensure rwMap obeys cmap.Map interface at compile time.
@@ -23,53 +25,31 @@ func New[K comparable, V any]() cmap.Map[K, V] {
 // newMap exposes concrete type for callers needing assertions in tests.
 func newMap[K comparable, V any]() *rwMap[K, V] {
 	return &rwMap[K, V]{
-		store: make(map[K]V),
-	}
-}
-
-func (m *rwMap[K, V]) ensureStore() {
-	if m.store == nil {
-		m.store = make(map[K]V)
+		store: make(map[K]V), // Always initialized; never nil
 	}
 }
 
 // Load retrieves the value for key, returning ok=false when missing.
 func (m *rwMap[K, V]) Load(key K) (value V, ok bool) {
-	if m == nil {
-		var zero V
-		return zero, false
-	}
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-
-	if m.store == nil {
-		var zero V
-		return zero, false
-	}
 	value, ok = m.store[key]
 	return value, ok
 }
 
 // Store sets the value for key, overwriting any existing value.
 func (m *rwMap[K, V]) Store(key K, value V) {
-	if m == nil {
-		return
-	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.ensureStore()
 	m.store[key] = value
 }
 
 // LoadOrStore returns the existing value if present, storing otherwise.
+// Uses write lock to ensure atomic "check-then-act" semantics.
 func (m *rwMap[K, V]) LoadOrStore(key K, value V) (actual V, loaded bool) {
-	if m == nil {
-		return value, false
-	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	m.ensureStore()
 	if existing, ok := m.store[key]; ok {
 		return existing, true
 	}
@@ -79,17 +59,9 @@ func (m *rwMap[K, V]) LoadOrStore(key K, value V) (actual V, loaded bool) {
 
 // LoadAndDelete removes key and returns prior value if it existed.
 func (m *rwMap[K, V]) LoadAndDelete(key K) (value V, loaded bool) {
-	if m == nil {
-		var zero V
-		return zero, false
-	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if m.store == nil {
-		var zero V
-		return zero, false
-	}
 	value, loaded = m.store[key]
 	if loaded {
 		delete(m.store, key)
@@ -99,28 +71,23 @@ func (m *rwMap[K, V]) LoadAndDelete(key K) (value V, loaded bool) {
 
 // Delete removes the key without reporting previous value.
 func (m *rwMap[K, V]) Delete(key K) {
-	if m == nil {
-		return
-	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.store != nil {
-		delete(m.store, key)
-	}
+	delete(m.store, key)
 }
 
-// Range iterates over entries until fn returns false.
+// Range iterates over a snapshot of the map entries until fn returns false.
+// Snapshot semantics:
+//   - Entries seen are those present when Range acquired the read lock
+//   - Modifications during iteration do not affect the snapshot
+//   - Read lock is held only during snapshot creation (not during fn execution)
 func (m *rwMap[K, V]) Range(fn func(key K, value V) bool) {
-	if m == nil || fn == nil {
+	if fn == nil {
 		return
 	}
 
 	m.mu.RLock()
-	if len(m.store) == 0 {
-		m.mu.RUnlock()
-		return
-	}
-
+	// Create snapshot under read lock to avoid long-term lock contention
 	snapshot := make([]struct {
 		key K
 		val V
@@ -133,6 +100,7 @@ func (m *rwMap[K, V]) Range(fn func(key K, value V) bool) {
 	}
 	m.mu.RUnlock()
 
+	// Execute user callback without holding any locks
 	for _, item := range snapshot {
 		if !fn(item.key, item.val) {
 			return
@@ -142,11 +110,7 @@ func (m *rwMap[K, V]) Range(fn func(key K, value V) bool) {
 
 // Len reports the number of key/value pairs in the map.
 func (m *rwMap[K, V]) Len() int {
-	if m == nil {
-		return 0
-	}
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-
 	return len(m.store)
 }

@@ -63,6 +63,22 @@ func BenchmarkMapRange(b *testing.B) {
 	}
 }
 
+func BenchmarkMapDelete(b *testing.B) {
+	for _, tc := range benchFactories {
+		b.Run(tc.name, func(b *testing.B) {
+			benchmarkDelete(b, tc.factory)
+		})
+	}
+}
+
+func BenchmarkMapLen(b *testing.B) {
+	for _, tc := range benchFactories {
+		b.Run(tc.name, func(b *testing.B) {
+			benchmarkLen(b, tc.factory)
+		})
+	}
+}
+
 func benchmarkStore(b *testing.B, factory func() cmap.Map[int, int]) {
 	b.Helper()
 	m := factory()
@@ -130,6 +146,40 @@ func benchmarkRange(b *testing.B, factory func() cmap.Map[int, int]) {
 				benchSink.Add(int64(value))
 				return true
 			})
+		}
+	})
+}
+
+func benchmarkDelete(b *testing.B, factory func() cmap.Map[int, int]) {
+	b.Helper()
+	m := factory()
+	for i := 0; i < benchKeySpace; i++ {
+		m.Store(i, i)
+	}
+	mask := benchKeySpace - 1
+
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		local := 0
+		for pb.Next() {
+			key := local & mask
+			m.Delete(key)
+			local++
+		}
+	})
+}
+
+func benchmarkLen(b *testing.B, factory func() cmap.Map[int, int]) {
+	b.Helper()
+	m := factory()
+	for i := 0; i < benchKeySpace; i++ {
+		m.Store(i, i)
+	}
+
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			benchSink.Add(int64(m.Len()))
 		}
 	})
 }
